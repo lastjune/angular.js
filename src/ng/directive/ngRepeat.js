@@ -21,8 +21,10 @@
  * | `$even`   | {@type boolean} | true if the iterator position `$index` is even (otherwise false).           |
  * | `$odd`    | {@type boolean} | true if the iterator position `$index` is odd (otherwise false).            |
  *
- * Creating aliases for these properties is possible with {@link ng.directive:ngInit `ngInit`}.
- * This may be useful when, for instance, nesting ngRepeats.
+ * <div class="alert alert-info">
+ *   Creating aliases for these properties is possible with {@link ng.directive:ngInit `ngInit`}.
+ *   This may be useful when, for instance, nesting ngRepeats.
+ * </div>
  *
  *
  * # Iterating over object properties
@@ -41,7 +43,7 @@
  * Version 1.4 removed the alphabetic sorting. We now rely on the order returned by the browser
  * when running `for key in myObj`. It seems that browsers generally follow the strategy of providing
  * keys in the order in which they were defined, although there are exceptions when keys are deleted
- * and reinstated. See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/delete#Cross-browser_issues
+ * and reinstated. See the [MDN page on `delete` for more info](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/delete#Cross-browser_notes).
  *
  * If this is not desired, the recommended workaround is to convert your object into an array
  * that is sorted into the order that you prefer before providing it to `ngRepeat`.  You could
@@ -256,7 +258,6 @@
       .animate-repeat.ng-move,
       .animate-repeat.ng-enter,
       .animate-repeat.ng-leave {
-        -webkit-transition:all linear 0.5s;
         transition:all linear 0.5s;
       }
 
@@ -428,7 +429,7 @@ var ngRepeatDirective = ['$parse', '$animate', function($parse, $animate) {
             // if object, extract keys, in enumeration order, unsorted
             collectionKeys = [];
             for (var itemKey in collection) {
-              if (collection.hasOwnProperty(itemKey) && itemKey.charAt(0) !== '$') {
+              if (hasOwnProperty.call(collection, itemKey) && itemKey.charAt(0) !== '$') {
                 collectionKeys.push(itemKey);
               }
             }

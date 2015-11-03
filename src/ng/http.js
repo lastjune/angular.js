@@ -8,6 +8,12 @@ var JSON_ENDS = {
   '{': /}$/
 };
 var JSON_PROTECTION_PREFIX = /^\)\]\}',?\n/;
+var $httpMinErr = minErr('$http');
+var $httpMinErrLegacyFn = function(method) {
+  return function() {
+    throw $httpMinErr('legacy', 'The method `{0}` on the promise returned from `$http` has been disabled.', method);
+  };
+};
 
 function serializeValue(v) {
   if (isObject(v)) {
@@ -108,8 +114,8 @@ function $HttpParamSerializerJQLikeProvider() {
       function serialize(toSerialize, prefix, topLevel) {
         if (toSerialize === null || isUndefined(toSerialize)) return;
         if (isArray(toSerialize)) {
-          forEach(toSerialize, function(value) {
-            serialize(value, prefix + '[]');
+          forEach(toSerialize, function(value, index) {
+            serialize(value, prefix + '[' + (isObject(value) ? index : '') + ']');
           });
         } else if (isObject(toSerialize) && !isDate(toSerialize)) {
           forEachSorted(toSerialize, function(value, key) {
@@ -330,6 +336,30 @@ function $HttpProvider() {
     return useApplyAsync;
   };
 
+  var useLegacyPromise = true;
+  /**
+   * @ngdoc method
+   * @name $httpProvider#useLegacyPromiseExtensions
+   * @description
+   *
+   * Configure `$http` service to return promises without the shorthand methods `success` and `error`.
+   * This should be used to make sure that applications work without these methods.
+   *
+   * Defaults to true. If no value is specified, returns the current configured value.
+   *
+   * @param {boolean=} value If true, `$http` will return a promise with the deprecated legacy `success` and `error` methods.
+   *
+   * @returns {boolean|Object} If a value is specified, returns the $httpProvider for chaining.
+   *    otherwise, returns the current configured value.
+   **/
+  this.useLegacyPromiseExtensions = function(value) {
+    if (isDefined(value)) {
+      useLegacyPromise = !!value;
+      return this;
+    }
+    return useLegacyPromise;
+  };
+
   /**
    * @ngdoc property
    * @name $httpProvider#interceptors
@@ -395,66 +425,47 @@ function $HttpProvider() {
      *
      *
      * ## General usage
-     * The `$http` service is a function which takes a single argument — a configuration object —
-     * that is used to generate an HTTP request and returns  a {@link ng.$q promise}
-     * with two $http specific methods: `success` and `error`.
+     * The `$http` service is a function which takes a single argument — a {@link $http#usage configuration object} —
+     * that is used to generate an HTTP request and returns  a {@link ng.$q promise}.
      *
      * ```js
-     *   // Simple GET request example :
-     *   $http.get('/someUrl').
-     *     success(function(data, status, headers, config) {
+     *   // Simple GET request example:
+     *   $http({
+     *     method: 'GET',
+     *     url: '/someUrl'
+     *   }).then(function successCallback(response) {
      *       // this callback will be called asynchronously
      *       // when the response is available
-     *     }).
-     *     error(function(data, status, headers, config) {
+     *     }, function errorCallback(response) {
      *       // called asynchronously if an error occurs
      *       // or server returns response with an error status.
      *     });
      * ```
      *
-     * ```js
-     *   // Simple POST request example (passing data) :
-     *   $http.post('/someUrl', {msg:'hello word!'}).
-     *     success(function(data, status, headers, config) {
-     *       // this callback will be called asynchronously
-     *       // when the response is available
-     *     }).
-     *     error(function(data, status, headers, config) {
-     *       // called asynchronously if an error occurs
-     *       // or server returns response with an error status.
-     *     });
-     * ```
+     * The response object has these properties:
      *
-     *
-     * Since the returned value of calling the $http function is a `promise`, you can also use
-     * the `then` method to register callbacks, and these callbacks will receive a single argument –
-     * an object representing the response. See the API signature and type info below for more
-     * details.
+     *   - **data** – `{string|Object}` – The response body transformed with the transform
+     *     functions.
+     *   - **status** – `{number}` – HTTP status code of the response.
+     *   - **headers** – `{function([headerName])}` – Header getter function.
+     *   - **config** – `{Object}` – The configuration object that was used to generate the request.
+     *   - **statusText** – `{string}` – HTTP status text of the response.
      *
      * A response status code between 200 and 299 is considered a success status and
      * will result in the success callback being called. Note that if the response is a redirect,
      * XMLHttpRequest will transparently follow it, meaning that the error callback will not be
      * called for such responses.
      *
-     * ## Writing Unit Tests that use $http
-     * When unit testing (using {@link ngMock ngMock}), it is necessary to call
-     * {@link ngMock.$httpBackend#flush $httpBackend.flush()} to flush each pending
-     * request using trained responses.
-     *
-     * ```
-     * $httpBackend.expectGET(...);
-     * $http.get(...);
-     * $httpBackend.flush();
-     * ```
      *
      * ## Shortcut methods
      *
      * Shortcut methods are also available. All shortcut methods require passing in the URL, and
-     * request data must be passed in for POST/PUT requests.
+     * request data must be passed in for POST/PUT requests. An optional config can be passed as the
+     * last argument.
      *
      * ```js
-     *   $http.get('/someUrl').success(successCallback);
-     *   $http.post('/someUrl', data).success(successCallback);
+     *   $http.get('/someUrl', config).then(successCallback, errorCallback);
+     *   $http.post('/someUrl', data, config).then(successCallback, errorCallback);
      * ```
      *
      * Complete list of shortcut methods:
@@ -467,6 +478,25 @@ function $HttpProvider() {
      * - {@link ng.$http#jsonp $http.jsonp}
      * - {@link ng.$http#patch $http.patch}
      *
+     *
+     * ## Writing Unit Tests that use $http
+     * When unit testing (using {@link ngMock ngMock}), it is necessary to call
+     * {@link ngMock.$httpBackend#flush $httpBackend.flush()} to flush each pending
+     * request using trained responses.
+     *
+     * ```
+     * $httpBackend.expectGET(...);
+     * $http.get(...);
+     * $httpBackend.flush();
+     * ```
+     *
+     * ## Deprecation Notice
+     * <div class="alert alert-danger">
+     *   The `$http` legacy promise methods `success` and `error` have been deprecated.
+     *   Use the standard `then` method instead.
+     *   If {@link $httpProvider#useLegacyPromiseExtensions `$httpProvider.useLegacyPromiseExtensions`} is set to
+     *   `false` then these methods will throw {@link $http:legacy `$http/legacy`} error.
+     * </div>
      *
      * ## Setting HTTP Headers
      *
@@ -511,7 +541,7 @@ function $HttpProvider() {
      *  data: { test: 'test' }
      * }
      *
-     * $http(req).success(function(){...}).error(function(){...});
+     * $http(req).then(function(){...}, function(){...});
      * ```
      *
      * ## Transforming Requests and Responses
@@ -617,7 +647,7 @@ function $HttpProvider() {
      *
      * There are two kinds of interceptors (and two kinds of rejection interceptors):
      *
-     *   * `request`: interceptors get called with a http `config` object. The function is free to
+     *   * `request`: interceptors get called with a http {@link $http#usage config} object. The function is free to
      *     modify the `config` object or create a new one. The function needs to return the `config`
      *     object directly, or a promise containing the `config` or a new `config` object.
      *   * `requestError`: interceptor gets called when a previous interceptor threw an error or
@@ -743,7 +773,6 @@ function $HttpProvider() {
      * In order to prevent collisions in environments where multiple Angular apps share the
      * same domain or subdomain, we recommend that each application uses unique cookie name.
      *
-     *
      * @param {object} config Object describing the request to be made and how it should be
      *    processed. The object has following properties:
      *
@@ -788,20 +817,9 @@ function $HttpProvider() {
      *    - **responseType** - `{string}` - see
      *      [XMLHttpRequest.responseType](https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest#xmlhttprequest-responsetype).
      *
-     * @returns {HttpPromise} Returns a {@link ng.$q promise} object with the
-     *   standard `then` method and two http specific methods: `success` and `error`. The `then`
-     *   method takes two arguments a success and an error callback which will be called with a
-     *   response object. The `success` and `error` methods take a single argument - a function that
-     *   will be called when the request succeeds or fails respectively. The arguments passed into
-     *   these functions are destructured representation of the response object passed into the
-     *   `then` method. The response object has these properties:
+     * @returns {HttpPromise} Returns a {@link ng.$q `Promise}` that will be resolved to a response object
+     *                        when the request succeeds or fails.
      *
-     *   - **data** – `{string|Object}` – The response body transformed with the transform
-     *     functions.
-     *   - **status** – `{number}` – HTTP status code of the response.
-     *   - **headers** – `{function([headerName])}` – Header getter function.
-     *   - **config** – `{Object}` – The configuration object that was used to generate the request.
-     *   - **statusText** – `{string}` – HTTP status text of the response.
      *
      * @property {Array.<Object>} pendingRequests Array of config objects for currently pending
      *   requests. This is primarily meant to be used for debugging purposes.
@@ -843,13 +861,12 @@ function $HttpProvider() {
           $scope.response = null;
 
           $http({method: $scope.method, url: $scope.url, cache: $templateCache}).
-            success(function(data, status) {
-              $scope.status = status;
-              $scope.data = data;
-            }).
-            error(function(data, status) {
-              $scope.data = data || "Request failed";
-              $scope.status = status;
+            then(function(response) {
+              $scope.status = response.status;
+              $scope.data = response.data;
+            }, function(response) {
+              $scope.data = response.data || "Request failed";
+              $scope.status = response.status;
           });
         };
 
@@ -897,7 +914,7 @@ function $HttpProvider() {
      */
     function $http(requestConfig) {
 
-      if (!angular.isObject(requestConfig)) {
+      if (!isObject(requestConfig)) {
         throw minErr('$http')('badreq', 'Http request configuration must be an object.  Received: {0}', requestConfig);
       }
 
@@ -954,34 +971,36 @@ function $HttpProvider() {
         promise = promise.then(thenFn, rejectFn);
       }
 
-      promise.success = function(fn) {
-        assertArgFn(fn, 'fn');
+      if (useLegacyPromise) {
+        promise.success = function(fn) {
+          assertArgFn(fn, 'fn');
 
-        promise.then(function(response) {
-          fn(response.data, response.status, response.headers, config);
-        });
-        return promise;
-      };
+          promise.then(function(response) {
+            fn(response.data, response.status, response.headers, config);
+          });
+          return promise;
+        };
 
-      promise.error = function(fn) {
-        assertArgFn(fn, 'fn');
+        promise.error = function(fn) {
+          assertArgFn(fn, 'fn');
 
-        promise.then(null, function(response) {
-          fn(response.data, response.status, response.headers, config);
-        });
-        return promise;
-      };
+          promise.then(null, function(response) {
+            fn(response.data, response.status, response.headers, config);
+          });
+          return promise;
+        };
+      } else {
+        promise.success = $httpMinErrLegacyFn('success');
+        promise.error = $httpMinErrLegacyFn('error');
+      }
 
       return promise;
 
       function transformResponse(response) {
         // make a copy since the response must be cacheable
         var resp = extend({}, response);
-        if (!response.data) {
-          resp.data = response.data;
-        } else {
-          resp.data = transformData(response.data, response.headers, response.status, config.transformResponse);
-        }
+        resp.data = transformData(response.data, response.headers, response.status,
+                                  config.transformResponse);
         return (isSuccess(response.status))
           ? resp
           : $q.reject(resp);
@@ -1259,8 +1278,8 @@ function $HttpProvider() {
        * Resolves the raw $http promise.
        */
       function resolvePromise(response, status, headers, statusText) {
-        // normalize internal statuses to 0
-        status = Math.max(status, 0);
+        //status: HTTP response status code, 0, -1 (aborted by timeout / promise)
+        status = status >= -1 ? status : 0;
 
         (isSuccess(status) ? deferred.resolve : deferred.reject)({
           data: response,
